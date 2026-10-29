@@ -48,6 +48,16 @@ function isValidLead(body: any): body is LeadPayload {
 }
 
 export default async function handler(req: any, res: any) {
+  // The widget runs on each firm's own website, so the browser treats this as
+  // a cross-origin request and checks these headers first. Without them it
+  // blocks the submission before it ever reaches the code below.
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    return res.status(204).end();
+  }
+
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
