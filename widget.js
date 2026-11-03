@@ -211,8 +211,9 @@
   let picks = {};
   let history = [];
   let stepId = "incident";
-  let contact = { firstName: "", lastName: "", phone: "", email: "", callPreference: "now", notes: "" };
+  let contact = { firstName: "", lastName: "", phone: "", email: "", callPreference: "now", notes: "", website: "" };
   let completed = false;
+  let startedAt = 0; // first answer tapped; used by the server's too-fast-to-be-human check
 
   function track() {
     return picks.incident ? picks.incident.track : "general";
@@ -427,6 +428,11 @@
       submittedAt: new Date().toISOString(),
       // Structured answers: used for the priority label and sent to the CRM webhook.
       answers: answers,
+      // Spam trap: real visitors never see the "website" field, and nobody
+      // finishes every screen in a couple of seconds. The server quietly
+      // drops submissions that fail either check.
+      website: contact.website || "",
+      elapsedMs: startedAt ? Date.now() - startedAt : null,
     };
   }
 
@@ -434,8 +440,9 @@
     picks = {};
     history = [];
     stepId = "incident";
-    contact = { firstName: "", lastName: "", phone: "", email: "", callPreference: "now", notes: "" };
+    contact = { firstName: "", lastName: "", phone: "", email: "", callPreference: "now", notes: "", website: "" };
     completed = false;
+    startedAt = 0;
   }
 
   // ------------------------------------------------------------ styles
@@ -574,6 +581,7 @@ textarea.iw-input { resize: vertical; min-height: 84px; }
 }
 .iw-primary[disabled] { opacity: 0.65; cursor: progress; }
 .iw-error { margin: 12px 0 0; font-size: 14px; color: var(--danger); }
+.iw-hp { position: absolute; left: -10000px; top: auto; width: 1px; height: 1px; overflow: hidden; }
 .iw-fineprint { margin: 14px 0 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
 .iw-done-text { margin: 0 0 18px; font-size: 16px; }
 
@@ -786,6 +794,7 @@ textarea.iw-input { resize: vertical; min-height: 84px; }
               // re-picking the same one keeps what they already answered.
               if (id === "incident" && (!picks.incident || picks.incident.value !== opt.value)) picks = {};
               picks[id] = opt;
+              if (!startedAt) startedAt = Date.now();
               // A short beat so the tap visibly registers before the next question.
               setTimeout(function () {
                 busy = false;
@@ -861,8 +870,14 @@ textarea.iw-input { resize: vertical; min-height: 84px; }
         maxlength: 200,
       });
 
+      // Spam trap. Moved off-screen and skipped by keyboard and screen readers,
+      // so only bots that fill in every field they find will touch it.
+      const trap = h("input", { type: "text", name: "website", tabindex: "-1", autocomplete: "off" });
+      trap.value = contact.website || "";
+      const trapWrap = h("div", { class: "iw-hp", "aria-hidden": "true" }, h("label", null, "Website", trap));
+
       const submit = h("button", { class: "iw-primary", type: "submit", text: "Continue" });
-      const form = h("form", { novalidate: true }, h("div", { class: "iw-row" }, first.wrap, last.wrap), phone.wrap, email.wrap, submit);
+      const form = h("form", { novalidate: true }, h("div", { class: "iw-row" }, first.wrap, last.wrap), phone.wrap, email.wrap, trapWrap, submit);
 
       form.addEventListener("submit", function (e) {
         e.preventDefault();
@@ -885,6 +900,7 @@ textarea.iw-input { resize: vertical; min-height: 84px; }
           return;
         }
         Object.assign(contact, values);
+        contact.website = trap.value;
         advance("details");
       });
 

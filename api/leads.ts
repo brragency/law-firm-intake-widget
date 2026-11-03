@@ -66,6 +66,15 @@ export default async function handler(req: any, res: any) {
 
   const body = req.body;
 
+  // Spam trap (see widget.js). Bots get the same "ok" a real visitor gets, so
+  // they move on, but nothing is stored and nobody is emailed.
+  const website = typeof body?.website === "string" ? body.website.trim() : "";
+  const elapsedMs = typeof body?.elapsedMs === "number" ? body.elapsedMs : null;
+  if (website !== "" || (elapsedMs !== null && elapsedMs < 3000)) {
+    console.warn("Spam trap: dropped a submission", { clientId: body?.clientId, filledHiddenField: website !== "", elapsedMs });
+    return res.status(200).json({ ok: true });
+  }
+
   if (!isValidLead(body)) {
     return res.status(400).json({ error: "Invalid lead payload" });
   }
@@ -113,6 +122,7 @@ export default async function handler(req: any, res: any) {
     .single();
 
   const crmWebhookUrl = clientRow?.crm_webhook_url;
+  const { website: _trap, elapsedMs: _elapsed, ...crmFields } = body as any;
   const alertEmails: string[] = Array.isArray(clientRow?.alert_emails) ? clientRow.alert_emails : [];
 
   // 3a. Forward to CRM. If this fails, the lead is still safely stored above —
@@ -123,7 +133,7 @@ export default async function handler(req: any, res: any) {
       const webhookRes = await fetch(crmWebhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, priority, priorityReasons: reasons }),
+        body: JSON.stringify({ ...crmFields, priority, priorityReasons: reasons }),
         signal: AbortSignal.timeout(8000),
       });
 
@@ -160,6 +170,8 @@ export default async function handler(req: any, res: any) {
     );
     if (result.sent) {
       await supabase.from("leads").update({ alert_emailed_at: new Date().toISOString() }).eq("id", data.id);
+    } else if (result.skipped === "no_api_key") {
+      console.warn("RESEND_API_KEY is not set for this deployment; alert email skipped for lead", data.id);
     } else if (result.error) {
       console.error("Alert email failed for lead", data.id, result.error);
     }
