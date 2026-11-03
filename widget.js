@@ -1,14 +1,20 @@
 // widget.js — branching intake widget (v2, intake only)
 //
-// Floating button + pop-up (default):
+// Basic (works on its own):
 //   <script src="https://law-firm-intake-widget.vercel.app/widget.js" data-client="smith-law" async></script>
+//
+// Recommended: give the firm's existing "Free Case Review" buttons the
+// data-intake-open attribute. They then open the form as a centered pop-up,
+// and the floating corner button hides itself automatically:
+//   <a href="#" data-intake-open>Start my free case review</a>      or      window.IntakeWidget.open()
 //
 // Inline, in place of a firm's static contact form:
 //   <div id="case-review"></div>
 //   <script src="https://law-firm-intake-widget.vercel.app/widget.js" data-client="smith-law" data-mount="#case-review" async></script>
 //
-// Open it from any existing button or link on the firm's site:
-//   <a href="#" data-intake-open>Start my free case review</a>      or      window.IntakeWidget.open()
+// Corner button: shown only when the page has no data-intake-open buttons
+// and no inline form. Force it with data-launcher="true" / "false", and put it
+// on the left with data-position="left".
 //
 // What it does:
 //   1. Reads the firm's ID off its own <script> tag, and works out the API
@@ -401,6 +407,10 @@
 
     const answers = {};
     answered.forEach(function (id) { answers[id] = picks[id].value; });
+    if (picks.incident) {
+      answers.track = picks.incident.track;
+      answers.incidentLabel = picks.incident.label;
+    }
 
     return {
       clientId: config.client_id || clientId,
@@ -415,7 +425,7 @@
       phone: formatPhone(contact.phone),
       callPreference: contact.callPreference === "later" ? "later" : "now",
       submittedAt: new Date().toISOString(),
-      // Extra detail for the CRM webhook only; the database insert ignores it.
+      // Structured answers: used for the priority label and sent to the CRM webhook.
       answers: answers,
     };
   }
@@ -475,20 +485,24 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visib
 
 .iw-scrim { position: fixed; inset: 0; z-index: 2147483001; background: rgba(16, 24, 32, 0.4); }
 
+/* Desktop: centered pop-up over a dimmed page. */
 .iw-panel {
-  position: fixed; right: 24px; bottom: 24px; z-index: 2147483002;
-  width: 420px; max-width: calc(100vw - 32px);
-  max-height: 700px; max-height: min(700px, calc(100vh - 48px));
+  position: fixed; top: 50%; left: 50%; z-index: 2147483002;
+  transform: translate(-50%, -50%);
+  width: 460px; max-width: calc(100vw - 32px);
+  max-height: 720px; max-height: min(720px, calc(100vh - 48px));
   display: flex; flex-direction: column; overflow: hidden;
   background: #ffffff; border-radius: 16px;
   box-shadow: 0 24px 64px rgba(16, 24, 32, 0.3);
 }
-.iw-panel.is-left { right: auto; left: 24px; }
 .iw-panel.is-opening { animation: iw-rise 180ms ease-out; }
-@keyframes iw-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes iw-rise {
+  from { opacity: 0; transform: translate(-50%, calc(-50% + 12px)); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
 
 .iw-panel.is-inline {
-  position: relative; right: auto; bottom: auto; z-index: auto;
+  position: relative; top: auto; left: auto; transform: none; z-index: auto;
   width: 100%; max-width: 560px; max-height: none;
   border: 1px solid var(--line); border-radius: 14px; box-shadow: none;
 }
@@ -565,7 +579,7 @@ textarea.iw-input { resize: vertical; min-height: 84px; }
 
 @media (max-width: 600px) {
   .iw-panel:not(.is-inline) {
-    left: 0; right: 0; bottom: 0; width: 100%; max-width: none;
+    top: auto; left: 0; right: 0; bottom: 0; transform: none; width: 100%; max-width: none;
     max-height: 92vh; max-height: 92dvh;
     border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom);
   }
@@ -599,7 +613,10 @@ textarea.iw-input { resize: vertical; min-height: 84px; }
       console.warn("[intake-widget] data-mount element not found (" + MOUNT_SELECTOR + "); showing the floating button instead.");
     }
     const inline = !!mountTarget;
-    const showLauncher = LAUNCHER_ATTR ? LAUNCHER_ATTR !== "false" : !inline;
+    // The corner button is a fallback: if the firm has wired its own buttons
+    // (data-intake-open) or an inline form, those are the way in.
+    const hasOwnButtons = !!document.querySelector("[data-intake-open]");
+    const showLauncher = LAUNCHER_ATTR ? LAUNCHER_ATTR !== "false" : !inline && !hasOwnButtons;
     const side = currentScript.getAttribute("data-position") === "left" ? "is-left" : "is-right";
 
     const host = h("div", { "data-intake-widget-host": clientId });
@@ -624,7 +641,7 @@ textarea.iw-input { resize: vertical; min-height: 84px; }
       "section",
       inline
         ? { class: "iw-panel is-inline", role: "region", "aria-label": "Case review form" }
-        : { class: "iw-panel " + side, role: "dialog", "aria-modal": "true", "aria-labelledby": "iw-title", hidden: true },
+        : { class: "iw-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "iw-title", hidden: true },
       h("div", { class: "iw-progress", "aria-hidden": "true" }, progressFill),
       h("div", { class: "iw-head" }, backBtn, brand, closeBtn),
       body
